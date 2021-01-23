@@ -3,6 +3,7 @@ Please write your name here: Henry Stanton
 """
 import csv
 import re
+import datetime
 
 def breakParser(break_note, start_time):
       print(break_note)
@@ -71,7 +72,8 @@ def breakParser(break_note, start_time):
         y[0] = re.sub("^(.*?):", str(int(re.findall("^(.*?):" ,y[0])[0])+12)+":", y[0])
         y[1] = re.sub("^(.*?):", str(int(re.findall("^(.*?):" ,y[1])[0])+12)+":", y[1]) 
         print(y)
-      return y
+      #Return 2 item list of break start and end times of type string
+      return y[0], y[1]
 
 
 def process_shifts(path_to_csv):
@@ -95,18 +97,69 @@ def process_shifts(path_to_csv):
     shiftsReader = csv.DictReader(csvfile,delimiter=',')
 
     #For each shift worked, go through each hour and, if worked, add pay amount to corresponding hour in shiftsDict   
+    shiftNumber = 1
     for i in shiftsReader:
-      hourCounter = i["start_time"]
-      while hourCounter != i["end_time"]:
-        if hourCounter in shiftsDict:
-          shiftsDict[hourCounter] = ((shiftsDict[hourCounter]*100) + (float(i["pay_rate"])*100))/100 
-        else:
-          shiftsDict[hourCounter] = float(i["pay_rate"])
+      print("\nShift number: ", shiftNumber)
+      shiftNumber+=1
+      hourToAdd = datetime.timedelta(hours = 1)
+      startBreak, endBreak = breakParser(i["break_notes"], i["start_time"])
+      startBreak = datetime.datetime.strptime(startBreak, "%H:%M")
+      endBreak = datetime.datetime.strptime(endBreak, "%H:%M")
+      startTime = datetime.datetime.strptime(i["start_time"], "%H:%M")
+      endTime = datetime.datetime.strptime(i["end_time"], "%H:%M")
+      endTimePlusHr = datetime.datetime.strptime(str(endTime.hour)+":00", "%H:%M")+ hourToAdd
+      hourCounter = datetime.datetime.strptime((str(startTime.hour)+":00"), "%H:%M") #Extract hour from start time - allows for start times part way through an hour
 
-    
+      #For a given shift, go through each hour, from start time while it is less than end time + 1hr (to allow for end times that finish part way through hour)
+      while hourCounter < endTime :
+        print(hourCounter)
 
+        #if hourCounter & end time are same hour and end time is bigger than hour counter, calculate additional time cost. Currency amounts are rounded using int, as examples seemed to use integers
+        
+        if (hourCounter.hour == endTime.hour) and (endTime > hourCounter):
+          print("hourCounter is: ", hourCounter, " & endTime is ", endTime)
+          tempMins = (endTime - hourCounter).total_seconds()/60
+          tempPay = ((tempMins/60)*(float(i["pay_rate"])*100))/100
 
-  print(shiftsDict)
+          #If hour is already in shiftsDict add data to existing key
+          tempKey = str(hourCounter.hour) + ":00" 
+          if tempKey in shiftsDict:
+            shiftsDict[tempKey] = int(((shiftsDict[tempKey]*100) + (tempPay)*100))/100 
+          #Else create new key
+          else:
+            shiftsDict[tempKey] = int(tempPay)
+        
+        #If hourCounter is >= end time of break or hourCounter is <= start time of break, add whole hour's pay
+        elif hourCounter >= endBreak or (hourCounter + hourToAdd) <= startBreak and not(hourCounter == endTime):
+          print("Whole hour's pay added")
+          #If hour is already in shiftsDict add data to existing key
+          tempKey = str(hourCounter.hour) + ":00" 
+          if tempKey in shiftsDict:
+            shiftsDict[tempKey] = int(((shiftsDict[tempKey]*100) + (float(i["pay_rate"])*100))/100) 
+            print(int(float(i["pay_rate"])), " added")
+          #Else create new key
+          else:
+            shiftsDict[tempKey] = int(float(i["pay_rate"]))
+            print(int(float(i["pay_rate"])), " added")
+        
+        #Else figure out how much to add, if any:
+        elif not(hourCounter  == endTime):
+          print("partial amount added")
+          #Calculate number of minutes of given hour not worked as a break
+          tempMins = (((hourCounter+hourToAdd)-endBreak)+(startBreak-hourCounter)).total_seconds()/60
+          tempAmount = (((float(i["pay_rate"])*100) / 60) * tempMins)/100
+          print("tempAmount added is ", tempAmount)
+          #If hour is already in shiftsDict add data to existing key
+          tempKey = str(hourCounter.hour) + ":00" 
+          if tempKey in shiftsDict:
+            shiftsDict[tempKey] = int(((shiftsDict[tempKey]*100) + (tempAmount*100))/100 )
+          #Else create new key
+          else:
+            shiftsDict[tempKey] = int(tempAmount)
+  
+        hourCounter += hourToAdd
+
+  print(sorted(shiftsDict.items()))
   return shiftsDict
 
 
